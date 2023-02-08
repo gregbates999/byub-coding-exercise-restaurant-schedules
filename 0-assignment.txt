@@ -1,0 +1,90 @@
+========== Original assignment
+Given the attached JSON data file [rest_hours.json], write an application that allows the user to specify a date and time and returns a list of restaurant names that are open.
+
+Assumptions:
+- If a day of the week is not listed, the restaurant is closed on that day
+- All times are local — don’t worry about time zone - awareness
+- The JSON file is well-formed but data may need to be further parsed
+
+If you have any questions, let me know. Please complete and submit your solution back to me by next Friday 2/10. You can submit your completed project via Email, GitHub, Google Drive or any other online service where we can access your work remotely.
+
+========== Observations
+Restaurants have only names and schedules. The given data has 51 restaurants. For this assignment, no need to look up by restaurant (only by time). Probably use their names as values, not keys.
+	Assume this list won't grow into the thousands or millions, so looping through the resaurants is reasonable (no need to invert data to map time buckets to a list of restaurants).
+	[Assuming the list of restaurants won't grow to the millions, ended up looping through each one to check whether it is open at a given time.]
+Days of the week (DoW) has only 7 values (Monday through Sunday), very discrete and few (already good buckets, could be keys in a lookup)
+Times of days (ToD) IN THE GIVEN DATA work with only half-hour granularity, so 48 buckets (most not used, better as a value than a key)
+	Assume half-hour granularity (bucket size) is sufficient.
+	[Ended up storing time ranges as tuples (time open, time closed), with possibly multiple ranges on a given day of the week.]
+Each schedule has one or two day-of-week ranges mapped to a single time range (which could extend across a day boundary [midnight])
+	Assume only one or two day ranges, but collect warnings for any schedules we cannot parse (might be a problem with the data or with our assumptions about the schedule format).
+
+General approach:
+	restaurantsFilename = "rest_hours.json"
+	allRestaurants = ReadRestaurantSchedules(restaurantsFilename) // a *list* of Restaurant objects
+	
+	loop
+		date, time = GetUserInput("Find restaurants open on what date and at what time?")
+		if Finished(date, time), break out of loop
+		dow, timeOfDay = TransformDateAndTimeToDowAndTime(date, time)
+		openRestaurants = GetOpenRestaurants(allRestaurats, dow, timeOfDay)
+		ShowRestaurantNames(openRestaurants)
+
+========== Details (especialy the data storage)
+Restaurant:
+	name (string)
+	schedule (LIST of string) // original data, human readable
+	openDaysToTimes (dict) // maps dow to a LIST of time ranges (only for open times, not all times) (parsed from human-readable schedule)
+	
+	IsOpen(dow, time) (bool)
+		if dow not in openDaysToTimes.keys, return false
+		return openDaysToTimes[dow][openTime] <= time < openDaysToTimes[dow][closeTime] (for ANY of the time ranges for the given dow)
+
+ReadRestaurantSchedules
+	Store data (name and schedule) as a LIST of restaurants
+		For each, parse the schedule into openDaysAndTimes
+
+GetOpenRestaurants
+	Return a compsed list of restaurants for each restaurant in the *full* list where it is open at the given dow and time
+
+ParseScheduleIntoBuckets
+	// dow uses three-letter abbreviations with first letter uppercase
+		// Assume case sensitivity
+	//ex: dowRange timeRange (comma-separated list of one or more)
+	// NOTE: for a specified date, the time range might extend past midnight, implying an additional dow-to-times entry
+	
+	name = string
+	schedule = list (1 or more) of date range to time range strings (separated by commas)
+	date range to time rang string = date range, space, time range
+	date range = dow (start), OPTIONALLY followed by a hyphen and another dow (end)
+	dow = (enum) Mon, Tue, Wed, Thu, Fri, Sat, Sun (in that order)
+	time range = hr, colon, min space ampm (start), HYPHEN, hr, colon, min space ampm (end)
+	
+	Regular expressions for parsing (Python syntax) (note that alternation groups are also capture groups)
+	[Note: We updated these expressions in the code. Minutes became optional, defaulting to 00. We allowed an optional second day-of-week range for a given time range. We ended up with 15 groups, not 9.]
+		hyphen = r'\w*-\w*'
+	
+		hr = r'(1|2|3|4|5|6|7|8|9|10|11|12)'
+		min = r'(00|30)'
+		ampm = r'\w*(am|pm)'
+		time = fr'{hr}:{min}{ampm}'
+		time_range = fr'{time}{hyphen}{time}'
+		
+		dow = r'(Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
+		dow_range = fr'{dow}({hyphen}{dow})?'
+		
+		schedule = fr'{dow_range}\w+{time_range}'
+		
+		# schedule = r'(Mon|Tue|Wed|Thu|Fri|Sat|Sun)(\w*-\w*(Mon|Tue|Wed|Thu|Fri|Sat|Sun))?\w+(1|2|3|4|5|6|7|8|9|10|11|12):(00|30)\w*(am|pm)\w*-\w*(1|2|3|4|5|6|7|8|9|10|11|12):(00|30)\w*(am|pm)'
+		# group 1: start_dow
+		# group 2: optional hyphen and end_dow
+		# group 3: end_dow (optional)
+		# group 4: start_hr
+		# group 5: start_min
+		# group 6: start_ampm
+		# group 7: end_hr
+		# group 8: end_min
+		# group 9: end_ampm
+		
+		# Note: if the start_ampm is "am" and the end_ampm is "pm", that's fine (still in the same day)
+		#		but if the start is "pm" and the end is "am", then create TWO ranges of time buckets (one for each spearate day)
